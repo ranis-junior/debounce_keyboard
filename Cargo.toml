@@ -7,4 +7,3 @@ edition = "2024"
 clap = {version = "4.5.30", features = ["derive"]}
 evdev = "0.13.0"
 config = {version = "0.15.8", features = ["ini"]}
-log = "0.4.26"
