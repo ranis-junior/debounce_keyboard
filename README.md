@@ -12,7 +12,7 @@ The **debouncy keyboard Project** is a software solution designed to eliminate t
 
 - **Smart Detection**: Identifies and filters duplicate inputs caused by *double tapping*.
 - **Customization**: Allows adjusting response time between taps.
-- **Cross-Platform**: Compatible Linux, but Windows coming son.
+- **Cross-Platform**: Compatible with Linux, but Windows coming soon.
 - **Lightweight and Efficient**: Consumes minimal system resources without affecting overall performance.
 
 ## How It Works
