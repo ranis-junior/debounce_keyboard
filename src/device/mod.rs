@@ -361,16 +361,15 @@ pub mod command_line {
         #[arg(short, long, value_name = "path")]
         pub config_path: Option<PathBuf>,
 
-        /// list all connected devices
-        #[arg(short, long)]
-        pub list_devices: bool,
-
         #[command(subcommand)]
         pub command: Option<Commands>,
     }
 
     #[derive(Subcommand, Debug)]
     pub enum Commands {
+        /// List all connected devices
+        #[clap(name = "list")]
+        ListDevices,
         /// select the device to listen events
         Select {
             /// device number from list option [0-n]
@@ -381,11 +380,11 @@ pub mod command_line {
 
 pub mod config {
     use crate::device::debounce::get_all_keys_code;
-    use config::{Config, File, FileFormat, FileSourceFile};
+    use config::{Config, File, FileFormat};
     use evdev::{AttributeSet, KeyCode};
     use std::collections::HashMap;
     use std::fmt::{Display, Formatter};
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::path::PathBuf;
 
     const AVAILABLE_KEYS: [(&str, KeyCode); 95] = [
@@ -494,7 +493,12 @@ pub mod config {
 
     impl Display for ConfigHolder {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            let keys = AVAILABLE_KEYS.map(|(k, _)| k).join(",");
+            let keys = AVAILABLE_KEYS
+                .into_iter()
+                .filter(|(_, v)| self.keys.contains(*v))
+                .map(|(k, _)| k)
+                .collect::<Vec<_>>()
+                .join(",");
             write!(
                 f,
                 "keys={keys}\ndelay_ms={}\ndevice_id={}",
@@ -503,7 +507,7 @@ pub mod config {
         }
     }
 
-    pub fn load_config(file: PathBuf) -> ConfigHolder {
+    pub fn load_config(file: &PathBuf) -> ConfigHolder {
         let file = File::new(file.to_str().unwrap(), FileFormat::Ini);
 
         let settings = Config::builder().add_source(file).build().unwrap();
@@ -536,7 +540,7 @@ pub mod config {
         }
     }
 
-    pub fn save_config_to_path(path: &str, config: &ConfigHolder) {
+    pub fn save_config_to_path(path: &PathBuf, config: &ConfigHolder) {
         let mut config_file = std::fs::File::create(path).expect("Failed to create config file");
         config_file
             .write_all(config.to_string().as_bytes())
