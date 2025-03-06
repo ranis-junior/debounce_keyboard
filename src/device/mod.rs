@@ -343,6 +343,16 @@ pub mod debounce {
             .build()
             .unwrap()
     }
+
+    pub fn combine_u16_to_u32(high: u16, low: u16) -> u32 {
+        ((high as u32) << 16) | (low as u32)
+    }
+
+    pub fn split_u32_to_u16(value: u32) -> (u16, u16) {
+        let high = (value >> 16) as u16;
+        let low = (value & 0xFFFF) as u16;
+        (high, low)
+    }
 }
 
 pub mod command_line {
@@ -487,7 +497,8 @@ pub mod config {
 
     pub struct ConfigHolder {
         pub keys: AttributeSet<KeyCode>,
-        pub device_id: String,
+        pub device_id: u32,
+        pub device_name: String,
         pub delay_ms: u64,
     }
 
@@ -501,13 +512,16 @@ pub mod config {
                 .join(",");
             write!(
                 f,
-                "keys={keys}\ndelay_ms={}\ndevice_id={}",
-                self.delay_ms, self.device_id
+                "keys={keys}\ndelay_ms={}\ndevice_id={}\ndevice_name={}",
+                self.delay_ms, self.device_id, self.device_name
             )
         }
     }
 
     pub fn load_config(file: &PathBuf) -> ConfigHolder {
+        if !file.exists() {
+            std::fs::File::create(&file).expect("Failed to create config file");
+        }
         let file = File::new(file.to_str().unwrap(), FileFormat::Ini);
 
         let settings = Config::builder().add_source(file).build().unwrap();
@@ -529,13 +543,19 @@ pub mod config {
         };
 
         let device_id = match settings.get("device_id") {
-            Some(id) => id.to_owned(),
-            None => "".to_owned(),
+            Some(id) => id.parse::<u32>().expect("Invalid device id"),
+            None => 0,
+        };
+
+        let device_name = match settings.get("device_name") {
+            Some(name) => name.to_owned(),
+            None => "unknown".to_owned(),
         };
 
         ConfigHolder {
             keys,
             device_id,
+            device_name,
             delay_ms,
         }
     }
