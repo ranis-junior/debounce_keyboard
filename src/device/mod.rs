@@ -1,3 +1,8 @@
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "windows")]
+mod windows;
+
 pub mod debounce {
     use crate::device::config::ConfigHolder;
     use evdev::uinput::VirtualDevice;
@@ -520,7 +525,7 @@ pub mod config {
 
     pub fn load_config(file: &PathBuf) -> ConfigHolder {
         if !file.exists() {
-            std::fs::File::create(&file).expect("Failed to create config file");
+            std::fs::File::create(file).expect("Failed to create config file");
         }
         let file = File::new(file.to_str().unwrap(), FileFormat::Ini);
 
