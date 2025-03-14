@@ -1,6 +1,6 @@
 extern crate core;
 
-use crate::device::command_line::{Cli, Commands};
+use ate::device::command_line::{Cli, Commands};
 use crate::device::config::{ConfigHolder, load_config, save_config_to_path};
 use crate::device::debounce::{
     KeyEventHolder, combine_u16_to_u32, create_virtual_device, emit_key_event, list_devices,

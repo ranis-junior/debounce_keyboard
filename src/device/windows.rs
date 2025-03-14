@@ -1,5 +1,5 @@
 pub mod debounce {
-    use crate::device::linux::config::ConfigHolder;
+    use crate::device::windows::config::ConfigHolder;
     use std::collections::HashMap;
     use std::time::{Duration, SystemTime};
     use strum::EnumIter;
@@ -552,7 +552,8 @@ pub mod command_line {
 }
 
 pub mod config {
-    use crate::device::linux::debounce::get_all_keys_code;
+    use crate::device::debounce::KeybdKey;
+    use crate::device::windows::debounce::get_all_keys_code;
     use config::{Config, File, FileFormat};
     use evdev::{AttributeSet, KeyCode};
     use std::collections::HashMap;
@@ -659,7 +660,7 @@ pub mod config {
     ];
 
     pub struct ConfigHolder {
-        pub keys: AttributeSet<KeyCode>,
+        pub keys: Vec<KeybdKey>,
         pub device_id: u32,
         pub device_name: String,
         pub delay_ms: u64,
