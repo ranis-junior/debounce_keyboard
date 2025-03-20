@@ -1,13 +1,13 @@
 extern crate core;
 
-use ate::device::command_line::{Cli, Commands};
-use crate::device::config::{ConfigHolder, load_config, save_config_to_path};
+use crate::device::command_line::{Cli, Commands};
+use crate::device::config::{load_config, save_config_to_path, ConfigHolder};
 use crate::device::debounce::{
-    KeyEventHolder, combine_u16_to_u32, create_virtual_device, emit_key_event, list_devices,
-    receive_event, should_skip, split_u32_to_u16,
+    combine_u16_to_u32, create_virtual_device, emit_key_event, list_devices, receive_event,
+    should_skip, split_u32_to_u16, KeyEventHolder,
 };
 use clap::Parser;
-use evdev::{Device, EventSummary};
+use evdev::Device;
 use std::process::exit;
 
 mod device;
@@ -75,12 +75,10 @@ fn main() {
     loop {
         let fetched_events = receive_event(&mut device);
         for event in fetched_events {
-            if let EventSummary::Key(event, _, _) = event.destructure() {
-                if !should_skip(&event, &mut key_event_holder, &config) {
-                    #[cfg(debug_assertions)]
-                    println!("{:?}", event);
-                    emit_key_event(event.code().code(), event.value(), &mut virtual_device)
-                }
+            if !should_skip(&event, &mut key_event_holder, &config) {
+                #[cfg(debug_assertions)]
+                println!("{:?}", event);
+                emit_key_event(event, &mut virtual_device)
             }
         }
     }
