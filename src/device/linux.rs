@@ -303,15 +303,19 @@ pub mod debounce {
         }
     }
 
-    #[derive(Debug)]
     pub struct Device {
         vendor: u16,
         product: u16,
+        device_internal: Option<DeviceEvDev>,
     }
 
     impl Device {
         pub fn new(vendor: u16, product: u16) -> Device {
-            Device { vendor, product }
+            Device {
+                vendor,
+                product,
+                device_internal: None,
+            }
         }
     }
 
