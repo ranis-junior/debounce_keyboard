@@ -3,6 +3,7 @@ pub mod debounce {
     use std::collections::HashMap;
     use std::time::{Duration, SystemTime};
     use std::{mem, ptr};
+    use std::mem::MaybeUninit;
     use strum::{EnumIter, IntoEnumIterator};
 
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, EnumIter)]
@@ -339,17 +340,16 @@ pub mod debounce {
         }
     }
 
-    use winapi::shared::minwindef::{INT, LPVOID, UINT};
     use windows::Win32::UI::Input::GetRawInputDeviceList;
 
     pub fn list_devices() -> Vec<Device> {
-        let mut buffer: [RAWINPUTDEVICELIST; 1000] = MaybeUninit::uninit().assume_init();
-        let num_devices: *mut u32 = *0;
+        let mut num_devices: u32 = 0;
         let device_list_size = mem::size_of::<RAWINPUTDEVICELIST>();
         unsafe {
+        let mut buffer: [RAWINPUTDEVICELIST; 1000] = MaybeUninit::uninit().assume_init();
             let result =
-                GetRawInputDeviceList(ptr::null_mut(), num_devices, device_list_size as UINT);
-            if result == -1i32 as UINT {
+                GetRawInputDeviceList(ptr::null_mut(), num_devices as *mut u32, device_list_size as u32);
+            if result == -1i32 {
                 panic!("Failed to Get Raw Device List!");
             }
         }
