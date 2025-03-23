@@ -275,11 +275,13 @@ pub mod debounce {
             }
         }
     }
+    use windows::Win32::UI::Input::{RAWINPUTDEVICE, RAWINPUTDEVICELIST};
+
 
     pub struct Device {
         pub vendor: u16,
         pub product: u16,
-        pub device_internal: DeviceWin,
+        pub device_internal: RAWINPUTDEVICE,
     }
 
     impl Device {
@@ -336,19 +338,26 @@ pub mod debounce {
             }
         }
     }
-    
-    use windows::Win32::UI::Input::{ }
+
+    use windows::Win32::UI::Input::GetRawInputDeviceList;
 
     pub fn list_devices() -> Vec<Device> {
-        ::enumerate()
-            .map(|(_, device)| {
-                Device::new(
-                    device.input_id().vendor(),
-                    device.input_id().product(),
-                    device,
-                )
-            })
-            .collect::<Vec<Device>>()
+        let mut inputDeviceList: Option<*mut RAWINPUTDEVICELIST> = None;
+        let puinumdevices: *mut u32 = *0;
+        let cbsize: u32 = 0;
+        unsafe {
+            GetRawInputDeviceList(inputDeviceList, puinumdevices, cbsize);
+        }
+        // ::enumerate()
+        //     .map(|(_, device)| {
+        //         Device::new(
+        //             device.input_id().vendor(),
+        //             device.input_id().product(),
+        //             device,
+        //         )
+        //     })
+        //     .collect::<Vec<Device>>()
+        Vec::from(inputDeviceList.unwrap())
     }
 
     pub fn receive_event(device: &mut Device) -> Vec<KeyEvent> {
