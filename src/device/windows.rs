@@ -2,6 +2,7 @@ pub mod debounce {
     use crate::device::windows::config::ConfigHolder;
     use std::collections::HashMap;
     use std::time::{Duration, SystemTime};
+    use std::{mem, ptr};
     use strum::{EnumIter, IntoEnumIterator};
 
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, EnumIter)]
@@ -277,7 +278,6 @@ pub mod debounce {
     }
     use windows::Win32::UI::Input::{RAWINPUTDEVICE, RAWINPUTDEVICELIST};
 
-
     pub struct Device {
         pub vendor: u16,
         pub product: u16,
@@ -339,14 +339,19 @@ pub mod debounce {
         }
     }
 
+    use winapi::shared::minwindef::{INT, LPVOID, UINT};
     use windows::Win32::UI::Input::GetRawInputDeviceList;
 
     pub fn list_devices() -> Vec<Device> {
-        let mut inputDeviceList: Option<*mut RAWINPUTDEVICELIST> = None;
-        let puinumdevices: *mut u32 = *0;
-        let cbsize: u32 = 0;
+        let mut buffer: [RAWINPUTDEVICELIST; 1000] = MaybeUninit::uninit().assume_init();
+        let num_devices: *mut u32 = *0;
+        let device_list_size = mem::size_of::<RAWINPUTDEVICELIST>();
         unsafe {
-            GetRawInputDeviceList(inputDeviceList, puinumdevices, cbsize);
+            let result =
+                GetRawInputDeviceList(ptr::null_mut(), num_devices, device_list_size as UINT);
+            if result == -1i32 as UINT {
+                panic!("Failed to Get Raw Device List!");
+            }
         }
         // ::enumerate()
         //     .map(|(_, device)| {
@@ -357,7 +362,7 @@ pub mod debounce {
         //         )
         //     })
         //     .collect::<Vec<Device>>()
-        Vec::from(inputDeviceList.unwrap())
+        Vec::from(input_device_list.unwrap())
     }
 
     pub fn receive_event(device: &mut Device) -> Vec<KeyEvent> {
@@ -441,8 +446,8 @@ pub mod command_line {
 }
 
 pub mod config {
-    use crate::device::windows::debounce::get_all_keys_code;
     use crate::device::windows::debounce::MappedKey;
+    use crate::device::windows::debounce::get_all_keys_code;
     use config::{Config, File, FileFormat};
     use std::collections::HashMap;
     use std::fmt::{Display, Formatter};
