@@ -1,13 +1,12 @@
 extern crate core;
 
 use crate::device::command_line::{Cli, Commands};
-use crate::device::config::{load_config, save_config_to_path, ConfigHolder};
+use crate::device::config::{ConfigHolder, load_config, save_config_to_path};
 use crate::device::debounce::{
-    combine_u16_to_u32, create_virtual_device, emit_key_event, list_devices, receive_event,
-    should_skip, split_u32_to_u16, KeyEventHolder,
+    Device, KeyEventHolder, combine_u16_to_u32, create_virtual_device, emit_key_event,
+    list_devices, receive_event, should_skip, split_u32_to_u16,
 };
 use clap::Parser;
-use evdev::Device;
 use std::process::exit;
 
 mod device;
@@ -22,7 +21,11 @@ fn main() {
         Some(command) => match command {
             Commands::ListDevices => {
                 for (i, device) in devices.iter().enumerate() {
-                    println!("{:?}: {}", i, device.name().unwrap_or("Unknown device"));
+                    println!(
+                        "{:?}: {}",
+                        i,
+                        device.device_internal.name().unwrap_or("Unknown device")
+                    );
                 }
                 exit(0);
             }
@@ -47,9 +50,9 @@ fn main() {
         device = devices
             .into_iter()
             .find(|d| {
-                d.input_id().vendor() == vendor
-                    && d.input_id().product() == product
-                    && d.name().unwrap() == config.device_name
+                d.vendor == vendor
+                    && d.product == product
+                    && d.device_internal.name().unwrap() == config.device_name
             })
             .expect("No devices found!");
     } else {
@@ -57,20 +60,23 @@ fn main() {
             .into_iter()
             .nth(device_number as usize)
             .expect("Invalid device number!");
-        let (vendor, product): (u16, u16) =
-            (device.input_id().vendor(), device.input_id().product());
+        let (vendor, product): (u16, u16) = (device.vendor, device.product);
         config.device_id = combine_u16_to_u32(vendor, product);
-        config.device_name = device.name().expect("Unknow device name!").to_owned();
+        config.device_name = device
+            .device_internal
+            .name()
+            .expect("Unknow device name!")
+            .to_owned();
         save_config_to_path(&config_path.clone(), &config);
     }
 
     let mut key_event_holder = KeyEventHolder::new(config.delay_ms);
     let mut virtual_device = create_virtual_device();
 
-    device.grab().unwrap();
+    device.grab();
     println!(
         "Watching {} for key events",
-        device.name().unwrap_or("Unknown device")
+        device.device_internal.name().unwrap_or("Unknown device")
     );
     loop {
         let fetched_events = receive_event(&mut device);

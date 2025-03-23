@@ -4,7 +4,6 @@ pub mod linux;
 pub use crate::device::linux::{command_line, config, debounce};
 
 #[cfg(target_os = "windows")]
-pub mod linux;
 pub mod windows;
 #[cfg(target_os = "windows")]
 pub use crate::device::windows::{command_line, config, debounce};

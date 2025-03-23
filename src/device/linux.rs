@@ -2,7 +2,7 @@ pub mod debounce {
     use crate::device::linux::config::ConfigHolder;
     use evdev::uinput::VirtualDevice;
     use evdev::{
-        AttributeSet, Device as DeviceEvDev, EventSummary, FetchEventsSynced, InputEvent, KeyCode,
+        AttributeSet, Device as DeviceEvDev, EventSummary, InputEvent, KeyCode,
         KeyEvent as KeyEventEvDev,
     };
     use std::collections::HashMap;
@@ -304,18 +304,29 @@ pub mod debounce {
     }
 
     pub struct Device {
-        vendor: u16,
-        product: u16,
-        device_internal: Option<DeviceEvDev>,
+        pub vendor: u16,
+        pub product: u16,
+        pub device_internal: DeviceEvDev,
     }
 
     impl Device {
-        pub fn new(vendor: u16, product: u16) -> Device {
+        pub fn new(vendor: u16, product: u16, device_internal: DeviceEvDev) -> Device {
             Device {
                 vendor,
                 product,
-                device_internal: None,
+                device_internal,
             }
+        }
+
+        pub fn grab(&mut self) {
+            self.device_internal.grab().expect("Error on grab device");
+        }
+
+        #[allow(dead_code)]
+        pub fn ungrab(&mut self) {
+            self.device_internal
+                .ungrab()
+                .expect("Error on ungrab device");
         }
     }
 
@@ -353,14 +364,20 @@ pub mod debounce {
         }
     }
 
-    pub fn list_devices() -> Vec<DeviceEvDev> {
+    pub fn list_devices() -> Vec<Device> {
         evdev::enumerate()
-            .map(|d| d.1)
-            .collect::<Vec<DeviceEvDev>>()
+            .map(|(_, device)| {
+                Device::new(
+                    device.input_id().vendor(),
+                    device.input_id().product(),
+                    device,
+                )
+            })
+            .collect::<Vec<Device>>()
     }
 
-    pub fn receive_event(device: &mut DeviceEvDev) -> Vec<KeyEvent> {
-        let result: Vec<InputEvent> = device.fetch_events().unwrap().collect();
+    pub fn receive_event(device: &mut Device) -> Vec<KeyEvent> {
+        let result: Vec<InputEvent> = device.device_internal.fetch_events().unwrap().collect();
         result
             .into_iter()
             .filter_map(|event| {
@@ -442,7 +459,7 @@ pub mod command_line {
 pub mod config {
     use crate::device::linux::debounce::get_all_keys_code;
     use config::{Config, File, FileFormat};
-    use evdev::{AttributeSet, KeyCode};
+    use evdev::KeyCode;
     use std::collections::HashMap;
     use std::fmt::{Display, Formatter};
     use std::io::Write;
