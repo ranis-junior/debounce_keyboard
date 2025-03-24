@@ -1,10 +1,9 @@
 pub mod debounce {
     use crate::device::windows::config::ConfigHolder;
     use std::collections::HashMap;
-    use std::mem::MaybeUninit;
     use std::time::{Duration, SystemTime};
-    use std::{mem, ptr};
     use strum::{EnumIter, IntoEnumIterator};
+    use windows::Win32::Foundation::HANDLE;
 
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, EnumIter)]
     #[allow(non_camel_case_types)]
@@ -277,7 +276,7 @@ pub mod debounce {
             }
         }
     }
-    use windows::Win32::UI::Input::{RAWINPUTDEVICE, RAWINPUTDEVICELIST};
+    use windows::Win32::UI::Input::{RAWINPUTDEVICE, RAWINPUTDEVICELIST, RID_DEVICE_INFO_TYPE};
 
     pub struct Device {
         pub vendor: u16,
@@ -340,19 +339,43 @@ pub mod debounce {
         }
     }
 
-    use windows::Win32::UI::Input::GetRawInputDeviceList;
+    use windows::Win32::UI::Input::{GetRawInputDeviceList, GetRawInputDeviceInfoA};
 
     pub fn list_devices() -> Vec<Device> {
-        let mut num_devices: u32 = 0;
-        let device_list_size: Option<*mut RAWINPUTDEVICELIST> = None;
         unsafe {
+            let mut num_devices: u32 = 0;
             let result = GetRawInputDeviceList(
-                device_list_size,
-                num_devices as *mut u32,
-                mem::size_of::<RAWINPUTDEVICELIST>() as u32,
+                None,
+                &mut num_devices,
+                size_of::<RAWINPUTDEVICELIST>() as u32,
             );
-            if result == 0 {
-                panic!("Failed to Get Raw Device List!");
+            if result == u32::MAX {
+                panic!(windows::core::Error::from_win32());
+            }
+            if num_devices == 0 {
+                panic!("No device found!");
+            }
+
+            let mut devices = vec![RAWINPUTDEVICELIST::default(); num_devices as usize];
+
+            let result = GetRawInputDeviceList(
+                Some(devices.as_mut_ptr()),
+                &mut num_devices,
+                size_of::<RAWINPUTDEVICELIST>() as u32,
+            );
+
+            if result == u32::MAX {
+                panic!(windows::core::Error::from_win32());
+            }
+
+            for device in devices {
+                println!("Handle do dispositivo: {:?}", device.hDevice);
+                match device.dwType {
+                    RIM_TYPEMOUSE => println!("Tipo de dispositivo: Mouse"),
+                    RIM_TYPEKEYBOARD => println!("Tipo de dispositivo: Teclado"),
+                    RIM_TYPEHID => println!("Tipo de dispositivo: Dispositivo HID"),
+                    _ => println!("Tipo de dispositivo: Desconhecido"),
+                }
             }
         }
         // ::enumerate()
