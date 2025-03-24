@@ -370,15 +370,15 @@ pub mod debounce {
             if result == u32::MAX {
                 panic!(windows::core::Error::from_win32());
             }
-            let devices_keyboard = devices
-                .into_iter()
-                .filter_map(|device| match device.dwType {
-                    RIM_TYPEHID => Some(device),
-                    _ => None,
-                })
-                .collect::<Vec<RAWINPUTDEVICELIST>>();
+            // let devices_keyboard = devices
+            //     .into_iter()
+            //     .filter_map(|device| match device.dwType {
+            //         RIM_TYPEHID => Some(device),
+            //         _ => None,
+            //     })
+            //     .collect::<Vec<RAWINPUTDEVICELIST>>();
 
-            if devices_keyboard.is_empty() {
+            if devices.is_empty() {
                 panic!("No keyboard device found!");
             }
 
@@ -397,11 +397,25 @@ pub mod debounce {
                     )
                 };
 
-                if result != u32::MAX {
-                    if let Some(device_info) = unsafe { device_info.Anonymous.hid } {
-                        println!("Vendor ID: {:04X}", device_info.dwVendorId);
-                        println!("Product ID: {:04X}", device_info.dwProductId);
+                if result == u32::MAX {
+                    panic!(windows::core::Error::from_win32());
+                }
+
+                match device_info.dwType {
+                    RIM_TYPEHID => {
+                        println!(
+                            "(HID) Vendor ID: {:04X}, Product ID: {:04X}",
+                            device_info.Anonymous.hid.dwVendorId,
+                            device_info.Anonymous.hid.dwProductId
+                        );
                     }
+                    RIM_TYPEKEYBOARD => {
+                        println!(
+                            "(Teclado) ID do Teclado: {}",
+                            device_info.Anonymous.keyboard.dwKeyboardMode
+                        );
+                    }
+                    _ => continue,
                 }
 
                 // Obter o nome do dispositivo
