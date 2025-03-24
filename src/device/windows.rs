@@ -353,7 +353,7 @@ pub mod debounce {
                 size_of::<RAWINPUTDEVICELIST>() as u32,
             );
             if result == u32::MAX {
-                panic!(windows::core::Error::from_win32());
+                panic!("Erro");
             }
             if num_devices == 0 {
                 panic!("No device found!");
@@ -368,7 +368,7 @@ pub mod debounce {
             );
 
             if result == u32::MAX {
-                panic!(windows::core::Error::from_win32());
+                panic!("Erro");
             }
             // let devices_keyboard = devices
             //     .into_iter()
@@ -398,7 +398,7 @@ pub mod debounce {
                 };
 
                 if result == u32::MAX {
-                    panic!(windows::core::Error::from_win32());
+                    panic!("Erro");
                 }
 
                 match device_info.dwType {
@@ -432,8 +432,8 @@ pub mod debounce {
                 };
 
                 if result != u32::MAX {
-                    let device_name = CStr::from_bytes_with_nul(&buffer).unwrap();
-                    println!("Nome do dispositivo: {}", device_name.to_string_lossy());
+                    let device_name = String::from_utf8_lossy(&buffer);
+                    println!("Nome do dispositivo: {}", device_name);
                 }
 
                 println!();
