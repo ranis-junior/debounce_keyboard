@@ -1,9 +1,9 @@
 pub mod debounce {
     use crate::device::windows::config::ConfigHolder;
     use std::collections::HashMap;
+    use std::ffi::{CStr, c_void};
     use std::time::{Duration, SystemTime};
     use strum::{EnumIter, IntoEnumIterator};
-    use windows::Win32::Foundation::HANDLE;
 
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, EnumIter)]
     #[allow(non_camel_case_types)]
@@ -276,7 +276,10 @@ pub mod debounce {
             }
         }
     }
-    use windows::Win32::UI::Input::{RAWINPUTDEVICE, RAWINPUTDEVICELIST, RID_DEVICE_INFO_TYPE};
+    use windows::Win32::UI::Input::{
+        GetRawInputDeviceInfoW, RAWINPUTDEVICE, RAWINPUTDEVICELIST, RID_DEVICE_INFO,
+        RIDI_DEVICEINFO, RIDI_DEVICENAME, RIM_TYPEHID, RIM_TYPEKEYBOARD,
+    };
 
     pub struct Device {
         pub vendor: u16,
@@ -339,7 +342,7 @@ pub mod debounce {
         }
     }
 
-    use windows::Win32::UI::Input::{GetRawInputDeviceList, GetRawInputDeviceInfoA};
+    use windows::Win32::UI::Input::GetRawInputDeviceList;
 
     pub fn list_devices() -> Vec<Device> {
         unsafe {
@@ -367,15 +370,59 @@ pub mod debounce {
             if result == u32::MAX {
                 panic!(windows::core::Error::from_win32());
             }
+            let devices_keyboard = devices
+                .into_iter()
+                .filter_map(|device| match device.dwType {
+                    RIM_TYPEHID => Some(device),
+                    _ => None,
+                })
+                .collect::<Vec<RAWINPUTDEVICELIST>>();
+
+            if devices_keyboard.is_empty() {
+                panic!("No keyboard device found!");
+            }
 
             for device in devices {
                 println!("Handle do dispositivo: {:?}", device.hDevice);
-                match device.dwType {
-                    RIM_TYPEMOUSE => println!("Tipo de dispositivo: Mouse"),
-                    RIM_TYPEKEYBOARD => println!("Tipo de dispositivo: Teclado"),
-                    RIM_TYPEHID => println!("Tipo de dispositivo: Dispositivo HID"),
-                    _ => println!("Tipo de dispositivo: Desconhecido"),
+
+                let mut device_info: RID_DEVICE_INFO = RID_DEVICE_INFO::default();
+                let mut size = size_of::<RID_DEVICE_INFO>() as u32;
+
+                let result = unsafe {
+                    GetRawInputDeviceInfoW(
+                        Some(device.hDevice),
+                        RIDI_DEVICEINFO,
+                        Some(&mut device_info as *mut RID_DEVICE_INFO as *mut c_void),
+                        &mut size,
+                    )
+                };
+
+                if result != u32::MAX {
+                    if let Some(device_info) = unsafe { device_info.Anonymous.hid } {
+                        println!("Vendor ID: {:04X}", device_info.dwVendorId);
+                        println!("Product ID: {:04X}", device_info.dwProductId);
+                    }
                 }
+
+                // Obter o nome do dispositivo
+                let mut buffer = [0u8; 256];
+                let mut size = buffer.len() as u32;
+
+                let result = unsafe {
+                    GetRawInputDeviceInfoW(
+                        Some(device.hDevice),
+                        RIDI_DEVICENAME,
+                        Some(buffer.as_mut_ptr() as *mut _),
+                        &mut size,
+                    )
+                };
+
+                if result != u32::MAX {
+                    let device_name = CStr::from_bytes_with_nul(&buffer).unwrap();
+                    println!("Nome do dispositivo: {}", device_name.to_string_lossy());
+                }
+
+                println!();
             }
         }
         // ::enumerate()
