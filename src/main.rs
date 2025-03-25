@@ -12,6 +12,10 @@ use std::process::exit;
 mod device;
 
 fn main() {
+    // https://learn.microsoft.com/en-us/windows/win32/inputdev/keyboard-input
+    // https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms644985(v=vs.85)
+    // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowshookexw
+    // https://github.com/obv-mikhail/InputBot/blob/develop/src/windows/mod.rs
     let args = Cli::parse();
 
     let config_path = args.config_path.unwrap_or_else(|| "config.ini".into());
