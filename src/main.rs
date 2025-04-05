@@ -13,7 +13,7 @@ use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
     RIM_TYPEKEYBOARD,
 };
-use windows::core::{HRESULT, PCWSTR};
+use windows::core::{Error, HRESULT, PCWSTR};
 
 fn get_device_friendly_name(device_path: &Vec<u16>) -> String {
     // 1. Obter o nome do dispositivo (ex: \\?\HID#VID_046D&PID_C53F&MI_00#7&316c6a2f&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd})
@@ -44,44 +44,61 @@ fn extract_device_id(device_path: &Vec<u16>) -> Vec<u16> {
 
 pub fn get_friendly_name_from_device_id(device_id: Vec<u16>) -> String {
     unsafe {
-        let device_info_set = SetupDiGetClassDevsW(
+        let device_info = SetupDiGetClassDevsW(
             None,
             Some(&PCWSTR(device_id.as_ptr())),
             None,
-            DIGCF_ALLCLASSES | DIGCF_PRESENT,
-        );
+            DIGCF_ALLCLASSES,
+        )
+        .unwrap();
+        check_win32_error().unwrap();
 
-        let device_info_set = device_info_set.unwrap();
-        if device_info_set.is_invalid() {
+        let mut device_data = SP_DEVINFO_DATA::default();
+        device_data.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
+
+        if SetupDiEnumDeviceInfo(device_info, 0, &mut device_data).is_err() {
+            SetupDiDestroyDeviceInfoList(device_info).unwrap();
+            check_win32_error().unwrap();
             panic!("erro");
         }
 
-        let mut device_info_data = SP_DEVINFO_DATA {
-            cbSize: size_of::<SP_DEVINFO_DATA>() as u32,
-            ..Default::default()
-        };
-
-        if SetupDiEnumDeviceInfo(device_info_set, 0, &mut device_info_data).is_err() {
-            SetupDiDestroyDeviceInfoList(device_info_set);
-            panic!("erro");
-        }
-
-        let mut buffer: [u8; 256] = [0; 256];
         let mut required_size = 0u32;
         let mut prop_type = DEVPROPTYPE::default();
+        SetupDiGetDevicePropertyW(
+            device_info,
+            &device_data,
+            &DEVPKEY_Device_FriendlyName,
+            &mut prop_type,
+            None,
+            Some(&mut required_size),
+            0,
+        )
+        .unwrap();
+
+        let mut buffer = vec![0; required_size as usize];
+
         let success = SetupDiGetDevicePropertyW(
-            device_info_set,
-            &device_info_data,
+            device_info,
+            &device_data,
             &DEVPKEY_Device_FriendlyName,
             &mut prop_type,
             Some(&mut buffer),
-            Some(&mut required_size),
+            None,
             0,
         );
 
-        SetupDiDestroyDeviceInfoList(device_info_set);
+        SetupDiDestroyDeviceInfoList(device_info).unwrap();
         let success = success.unwrap();
         String::from_utf8_lossy(&buffer).to_string()
+    }
+}
+
+pub unsafe fn check_win32_error() -> windows::core::Result<()> {
+    let err = Error::from_win32();
+    if err.code() == HRESULT(0) {
+        Ok(())
+    } else {
+        Err(err)
     }
 }
 
