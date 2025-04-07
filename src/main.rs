@@ -1,9 +1,6 @@
 use std::mem;
 use std::mem::zeroed;
-use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_ALLCLASSES, DIGCF_PRESENT, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList,
-    SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDevicePropertyW,
-};
+use windows::Win32::Devices::DeviceAndDriverInstallation::{DIGCF_ALLCLASSES, DIGCF_PRESENT, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDevicePropertyW, DIGCF_DEVICEINTERFACE};
 use windows::Win32::Devices::Properties::{
     DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_DEVPROPKEY, DEVPROPTYPE,
 };
@@ -48,7 +45,7 @@ pub fn get_friendly_name_from_device_id(device_id: Vec<u16>) -> String {
             None,
             Some(&PCWSTR(device_id.as_ptr())),
             None,
-            DIGCF_ALLCLASSES,
+            DIGCF_DEVICEINTERFACE | DIGCF_ALLCLASSES,
         )
         .unwrap();
         check_win32_error().unwrap();
