@@ -11,6 +11,7 @@ use windows::Win32::UI::Input::{
     RIM_TYPEKEYBOARD,
 };
 use windows::core::{Error, HRESULT, PCWSTR};
+use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 
 fn get_device_friendly_name(device_path: &Vec<u16>) -> String {
     // 1. Obter o nome do dispositivo (ex: \\?\HID#VID_046D&PID_C53F&MI_00#7&316c6a2f&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd})
@@ -42,7 +43,7 @@ fn extract_device_id(device_path: &Vec<u16>) -> Vec<u16> {
 pub fn get_friendly_name_from_device_id(device_id: Vec<u16>) -> String {
     unsafe {
         let device_info = SetupDiGetClassDevsW(
-            None,
+            Some(&GUID_DEVINTERFACE_KEYBOARD),
             Some(&PCWSTR(device_id.as_ptr())),
             None,
             DIGCF_DEVICEINTERFACE | DIGCF_ALLCLASSES,
