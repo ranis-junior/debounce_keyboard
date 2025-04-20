@@ -1,198 +1,211 @@
+use std::io::Error;
 use std::mem;
-use std::mem::zeroed;
-use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_ALLCLASSES, DIGCF_PRESENT, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList,
-    SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDevicePropertyW,
-};
+use windows::Win32::Devices::DeviceAndDriverInstallation::{DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW, SPDRP_FRIENDLYNAME, SPDRP_HARDWAREID};
+use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_DEVPROPKEY, DEVPROPTYPE,
+    DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
+    DEVPROPTYPE,
 };
-use windows::Win32::Foundation::*;
-use windows::Win32::Foundation::{GetLastError, HANDLE};
-use windows::Win32::UI::Input::{
-    GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
-    RIM_TYPEKEYBOARD,
-};
-use windows::core::{Error, HRESULT, PCWSTR};
+use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, MAX_PATH};
 
-fn get_device_friendly_name(device_path: &Vec<u16>) -> String {
-    // 1. Obter o nome do dispositivo (ex: \\?\HID#VID_046D&PID_C53F&MI_00#7&316c6a2f&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd})
-    // 2. Extrair o ID do dispositivo do caminho
-    let device_id = extract_device_id(device_path);
-
-    // 3. Obter a descrição amigável usando SetupDi
-    let device_id = r"HID\VID_046D&PID_C53D&MI_00"
-        .encode_utf16()
-        .collect::<Vec<u16>>();
-    get_friendly_name_from_device_id(device_id);
-    "".into()
-}
-fn extract_device_id(device_path: &Vec<u16>) -> Vec<u16> {
-    // O formato é algo como: \\?\HID#VID_046D&PID_C53F&MI_00#7&316c6a2f&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}
-    // Queremos extrair: HID\VID_046D&PID_C53F&MI_00
-    let device_path = String::from_utf16(device_path).unwrap();
-    println!("{}", device_path);
-    let device_path = device_path
-        .trim_start_matches(r"\\?\")
-        .split('#')
-        .take(2)
-        .collect::<Vec<_>>()
-        .join("\\");
-    println!("{}", device_path);
-    vec![1, 2]
-}
-
-pub fn get_friendly_name_from_device_id(device_id: Vec<u16>) -> String {
-    unsafe {
-        let device_info = SetupDiGetClassDevsW(
+fn get_keyboards_description() -> Result<Vec<(String, String)>, String> {
+    let devices = unsafe {
+        SetupDiGetClassDevsW(
+            Some(&GUID_DEVINTERFACE_KEYBOARD), // GUID for keyboard
             None,
-            Some(&PCWSTR(device_id.as_ptr())),
             None,
-            DIGCF_ALLCLASSES,
+            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
         )
-        .unwrap();
-        check_win32_error().unwrap();
+    };
 
-        let mut device_data = SP_DEVINFO_DATA::default();
-        device_data.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
+    let mut results = Vec::new();
+    match devices {
+        Ok(device_info_set) => {
+            if device_info_set.is_invalid() {
+                return Err("Could not get devices".to_string());
+            }
 
-        if SetupDiEnumDeviceInfo(device_info, 0, &mut device_data).is_err() {
-            SetupDiDestroyDeviceInfoList(device_info).unwrap();
-            check_win32_error().unwrap();
-            panic!("erro");
+            // Enumerate devices in the device information set
+            let mut index: u32 = 0;
+
+            loop {
+                let mut dev_info_data: SP_DEVINFO_DATA = SP_DEVINFO_DATA::default();
+                dev_info_data.cbSize = mem::size_of::<SP_DEVINFO_DATA>() as u32;
+
+                let result =
+                    unsafe { SetupDiEnumDeviceInfo(device_info_set, index, &mut dev_info_data) };
+                match result {
+                    Ok(_) => {
+                        match get_driver_id(device_info_set, &dev_info_data) {
+                            Ok(guid) => {
+                                match get_device_friendly_name(device_info_set, &dev_info_data) {
+                                    Ok(device_name) => {
+                                        results.push((guid, device_name));
+                                    }
+                                    Err(err) => {
+                                        eprintln!("Error {:?}", err);
+                                    }
+                                };
+                            }
+                            Err(err) => {
+                                eprintln!("Error {:?}", err);
+                            }
+                        };
+                        index += 1;
+                    }
+                    Err(err) => {
+                        eprintln!("Error {:?}", err);
+                        let x = unsafe { GetLastError() };
+                        if x == ERROR_NO_MORE_ITEMS {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
         }
+        Err(err) => {
+            eprintln!("Error {:?}", err);
+            return Err(err.message());
+        }
+    };
+    Ok(results)
+}
 
-        let mut required_size = 0u32;
-        let mut prop_type = DEVPROPTYPE::default();
+fn get_driver_id(
+    device_info_set: HDEVINFO,
+    dev_info_data: &SP_DEVINFO_DATA,
+) -> Result<String, String> {
+    let mut data_type: DEVPROPTYPE = DEVPROP_TYPE_GUID;
+    let mut data: Vec<u8> = vec![0u8; MAX_PATH as usize];
+    let buffer: Option<&mut [u8]> = Some(&mut data[..]);
+    let ptr: *mut u32 = 0 as *mut u32;
+    let reqsize: Option<*mut u32> = Some(ptr);
+
+    let result = unsafe {
         SetupDiGetDevicePropertyW(
-            device_info,
-            &device_data,
-            &DEVPKEY_Device_FriendlyName,
-            &mut prop_type,
-            None,
-            Some(&mut required_size),
+            device_info_set,
+            dev_info_data,
+            &DEVPKEY_Device_Driver,
+            &mut data_type,
+            buffer,
+            reqsize,
             0,
         )
-        .unwrap();
+    };
 
-        let mut buffer = vec![0; required_size as usize];
+    match result {
+        Ok(_) => {
+            let mut vec_u16: Vec<u16> = Vec::new();
+            let mut i = 0;
+            while i < data.len() {
+                vec_u16.push((data[i + 1] as u16) << 8 | data[i] as u16);
+                i += 2; // Convert to u16 manually because it is utf16
+            }
+            let b = String::from_utf16_lossy(&vec_u16);
+            let b = b.trim_end_matches('\0');
+            Ok(b.to_string())
+        }
+        Err(e) => {
+            eprintln!("Error {:?}", e);
+            unsafe { SetupDiDestroyDeviceInfoList(device_info_set).unwrap() };
+            Err(e.message())
+        }
+    }
+}
 
-        let success = SetupDiGetDevicePropertyW(
-            device_info,
-            &device_data,
+fn get_device_friendly_name(
+    device_info_set: HDEVINFO,
+    dev_info_data: &SP_DEVINFO_DATA,
+) -> Result<String, String> {
+    let mut data_type: DEVPROPTYPE = DEVPROP_TYPE_STRING;
+    let mut data: Vec<u8> = vec![0u8; MAX_PATH as usize];
+    let buffer: Option<&mut [u8]> = Some(&mut data[..]);
+    let ptr: *mut u32 = 0 as *mut u32;
+    let reqsize: Option<*mut u32> = Some(ptr);
+
+    let result = unsafe {
+        SetupDiGetDevicePropertyW(
+            device_info_set,
+            dev_info_data,
             &DEVPKEY_Device_FriendlyName,
-            &mut prop_type,
+            &mut data_type,
+            buffer,
+            reqsize,
+            0,
+        )
+    };
+
+    match result {
+        Ok(_) => {
+            // let data1 = u32::from_le_bytes(data[0..4].try_into().unwrap());
+            // let data2 = u16::from_le_bytes(data[4..6].try_into().unwrap());
+            // let data3 = u16::from_le_bytes(data[6..8].try_into().unwrap());
+            // let mut data4: [u8; 8] = [0; 8];
+            // data4.copy_from_slice(&data[8..16]);
+            //
+            // let x = GUID::from_values(data1, data2, data3, data4);
+            // let x = format!("{{{:?}}}", x).to_lowercase();
+            // println!("GUID {}", x);
+            Ok(String::from_utf8_lossy(&data).to_string())
+        }
+        Err(err) => unsafe {
+            eprintln!("Error {:?}", err);
+            // calling fallback mode
+            get_device_registry_description(device_info_set, dev_info_data)
+        },
+    }
+}
+
+fn get_device_registry_description(
+    device_info_set: HDEVINFO,
+    dev_info_data: &SP_DEVINFO_DATA,
+) -> Result<String, String> {
+    let mut buffer = [0u8; 512];
+    let mut reqsize = 0u32;
+    let result = unsafe {
+        SetupDiGetDeviceRegistryPropertyW(
+            device_info_set,
+            dev_info_data,
+            SPDRP_DEVICEDESC,
+            None,
             Some(&mut buffer),
-            None,
-            0,
-        );
-
-        SetupDiDestroyDeviceInfoList(device_info).unwrap();
-        let success = success.unwrap();
-        String::from_utf8_lossy(&buffer).to_string()
+            Some(&mut reqsize),
+        )
+    };
+    match result {
+        Ok(_) => {
+            let mut vec_u16: Vec<u16> = Vec::new();
+            let mut i = 0;
+            while i < buffer.len() {
+                vec_u16.push((buffer[i + 1] as u16) << 8 | buffer[i] as u16);
+                i += 2; // Convert to u16 manually because it is utf16
+            }
+            let b = String::from_utf16_lossy(&vec_u16);
+            let b = b.trim_end_matches('\0');
+            
+            println!("UTF-16: {}", b);
+            let buffer = &buffer[..reqsize as usize];
+            Ok(String::from_utf8_lossy(buffer).to_string())
+        },
+        Err(e) => {
+            eprintln!("Error {}", e.message());
+            Err(e.message())
+        },
+    }
+}
+fn close_device_information_set(device_info_set: HDEVINFO) {
+    let result = unsafe { SetupDiDestroyDeviceInfoList(device_info_set) };
+    if let Err(e) = result {
+        eprintln!("Error {:?}", e);
     }
 }
 
-pub unsafe fn check_win32_error() -> windows::core::Result<()> {
-    let err = Error::from_win32();
-    if err.code() == HRESULT(0) {
-        Ok(())
-    } else {
-        Err(err)
-    }
-}
-
-fn get_raw_input_device_name(device_handle: HANDLE) -> Option<Vec<u16>> {
-    let mut size: u32 = 0;
-
-    // Primeiro, obtenha o tamanho necessário do buffer
-    let result =
-        unsafe { GetRawInputDeviceInfoW(Some(device_handle), RIDI_DEVICENAME, None, &mut size) };
-
-    if result != 0 {
-        eprintln!(
-            "Erro ao obter o tamanho do nome do dispositivo: {:?}",
-            unsafe { GetLastError() }
-        );
-        return None;
-    }
-
-    // Alocar buffer com o tamanho necessário
-    let mut buffer: Vec<u16> = vec![0; size as usize];
-
-    // Agora, obtenha o nome real do dispositivo
-    let result = unsafe {
-        GetRawInputDeviceInfoW(
-            Some(device_handle),
-            RIDI_DEVICENAME,
-            Some(buffer.as_mut_ptr() as *mut _),
-            &mut size,
-        )
-    };
-
-    if result == u32::MAX {
-        eprintln!("Erro ao obter o nome do dispositivo: {:?}", unsafe {
-            GetLastError()
-        });
-        return None;
-    }
-
-    Some(buffer)
-}
-fn get_raw_input_devices() -> Vec<HANDLE> {
-    let mut num_devices: u32 = 0;
-
-    // Primeiro, obtenha a quantidade de dispositivos disponíveis
-    let result = unsafe {
-        GetRawInputDeviceList(
-            None,
-            &mut num_devices,
-            size_of::<RAWINPUTDEVICELIST>() as u32,
-        )
-    };
-
-    if result != 0 {
-        eprintln!("Erro ao obter a quantidade de dispositivos.");
-        return vec![];
-    }
-
-    // Aloca um buffer para armazenar os dispositivos
-    let mut device_list: Vec<RAWINPUTDEVICELIST> = vec![unsafe { zeroed() }; num_devices as usize];
-
-    // Agora, obtenha a lista de dispositivos
-    let result = unsafe {
-        GetRawInputDeviceList(
-            Some(device_list.as_mut_ptr()),
-            &mut num_devices,
-            size_of::<RAWINPUTDEVICELIST>() as u32,
-        )
-    };
-
-    if result == u32::MAX {
-        eprintln!("Erro ao obter a lista de dispositivos.");
-        return vec![];
-    }
-
-    // Extrai os handles dos dispositivos
-    device_list
-        .into_iter()
-        .filter(|device| device.dwType == RIM_TYPEKEYBOARD)
-        .map(|device| device.hDevice)
-        .collect()
+fn get_error() -> String {
+    format!("{:?}", unsafe { GetLastError() })
 }
 
 fn main() {
-    let devices = get_raw_input_devices();
-    for device in devices {
-        match get_raw_input_device_name(device) {
-            Some(mut name) => unsafe {
-                let tst = get_device_friendly_name(&name);
-                println!(
-                    "Nome do dispositivo: {}",
-                    String::from_utf16(&name).unwrap()
-                )
-            },
-            None => println!("Falha ao obter o nome do dispositivo."),
-        }
-    }
+    let ids = get_keyboards_description();
+    println!("{:?}", ids);
 }
