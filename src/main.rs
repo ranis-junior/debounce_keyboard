@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::io::Error;
 use std::mem;
 use std::mem::zeroed;
@@ -309,33 +310,17 @@ fn get_raw_input_device_instance_id(device_handle: HANDLE) -> Option<String> {
         return None;
     }
     let id = String::from_utf16(&buffer).unwrap();
-    // let id = format_device_path(id);
+    let id = format_device_path(&id);
     // regex para deixar no formato certo
 
     Some(id)
 }
 
-fn format_device_path(id: String) -> String {
-    // Remover o prefixo \\?\ e o sufixo GUID
-    let trimmed = id
-        .trim_start_matches(r"\\?\")
-        .splitn(2, '#')
-        .next()
-        .unwrap();
+fn format_device_path(id: &str) -> String {
+    let re = Regex::new(r"^\W{4}([^\{]*)\{").unwrap();
+    let cap = re.captures(&id).unwrap();
 
-    // Dividir em partes
-    let parts: Vec<&str> = trimmed.split('#').collect();
-
-    if parts.len() != 2 {
-        return id.to_string(); // Retorna original se não estiver no formato esperado
-    }
-
-    // Processar cada parte
-    let first_part = parts[0].replace('#', r"\");
-    let second_part = parts[1].to_uppercase();
-
-    // Juntar as partes com \
-    format!(r"{}\{}", first_part, second_part)
+    cap[1].trim_end_matches("#").replace("#", r"\")
 }
 
 fn main() {
