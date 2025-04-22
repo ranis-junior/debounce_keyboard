@@ -1,22 +1,28 @@
 use regex::Regex;
-use std::io::Error;
+use std::ffi::c_void;
 use std::mem;
 use std::mem::zeroed;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC,
-    SPDRP_FRIENDLYNAME, SPDRP_HARDWAREID, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
-    SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW,
-    SetupDiGetDeviceRegistryPropertyW,
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
+    SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
     DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
     DEVPROPTYPE,
 };
-use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, MAX_PATH};
+use windows::Win32::Foundation::{
+    ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, MAX_PATH, WPARAM,
+};
+use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
     RIM_TYPEKEYBOARD,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageA, GetMessageA, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, MSG,
+    SetWindowsHookExA, TranslateMessage, WH_KEYBOARD_LL,
 };
 
 fn get_keyboards_description() -> Result<Vec<(String, String)>, String> {
@@ -322,14 +328,51 @@ fn format_device_path(id: &str) -> String {
     cap[1].trim_end_matches("#").replace("#", r"\")
 }
 
+static mut HOOK: HHOOK = HHOOK(0 as *mut c_void);
+
+unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let kb_struct = *(lparam.0 as *const KBDLLHOOKSTRUCT);
+
+        match wparam.0 as u32 {
+            WM_KEYDOWN => {
+                println!("Key Down: {:?}", kb_struct.vkCode);
+            }
+            WM_KEYUP => {
+                println!("Key Up: {:?}", kb_struct.vkCode);
+            }
+            _ => {}
+        }
+    }
+
+    CallNextHookEx(Some(HHOOK(0 as *mut c_void)), code, wparam, lparam)
+}
 fn main() {
-    let ids = get_keyboards_description();
-    println!("{:?}", ids);
-    let devices = get_raw_input_devices();
-    for device in devices {
-        match get_raw_input_device_instance_id(device) {
-            Some(id) => unsafe { println!("ID do dispositivo: {}", id) },
-            None => println!("Falha ao obter o nome do dispositivo."),
+    unsafe {
+        let h_instance = GetModuleHandleA(None).unwrap();
+        let h_instance = HINSTANCE(h_instance.0); // cast explícito para HINSTANCE
+
+        HOOK = SetWindowsHookExA(WH_KEYBOARD_LL, Some(keyboard_proc), Some(h_instance), 0).unwrap();
+
+        println!("Hook installed. Press Ctrl+C to exit.");
+
+        let mut msg = MSG::default();
+
+        while GetMessageA(&mut msg, Some(HWND(0 as *mut c_void)), 0, 0).into() {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
         }
     }
 }
+
+// fn main() {
+//     let ids = get_keyboards_description();
+//     println!("{:?}", ids);
+//     let devices = get_raw_input_devices();
+//     for device in devices {
+//         match get_raw_input_device_instance_id(device) {
+//             Some(id) => unsafe { println!("ID do dispositivo: {}", id) },
+//             None => println!("Falha ao obter o nome do dispositivo."),
+//         }
+//     }
+// }
