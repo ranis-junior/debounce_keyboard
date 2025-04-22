@@ -1,12 +1,22 @@
 use std::io::Error;
 use std::mem;
-use windows::Win32::Devices::DeviceAndDriverInstallation::{DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW, SPDRP_FRIENDLYNAME, SPDRP_HARDWAREID};
+use std::mem::zeroed;
+use windows::Win32::Devices::DeviceAndDriverInstallation::{
+    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC,
+    SPDRP_FRIENDLYNAME, SPDRP_HARDWAREID, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
+    SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW,
+    SetupDiGetDeviceRegistryPropertyW,
+};
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
     DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
     DEVPROPTYPE,
 };
-use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, MAX_PATH};
+use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, MAX_PATH};
+use windows::Win32::UI::Input::{
+    GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
+    RIM_TYPEKEYBOARD,
+};
 
 fn get_keyboards_description() -> Result<Vec<(String, String)>, String> {
     let devices = unsafe {
@@ -161,6 +171,23 @@ fn get_device_registry_description(
     device_info_set: HDEVINFO,
     dev_info_data: &SP_DEVINFO_DATA,
 ) -> Result<String, String> {
+    // obtem id de instancia
+    let mut instance_id = [0u16; 256];
+    let mut reqsize = 0u32;
+    let result = unsafe {
+        SetupDiGetDeviceInstanceIdW(
+            device_info_set,
+            dev_info_data,
+            Some(&mut instance_id),
+            Some(&mut reqsize),
+        )
+    };
+
+    if result.is_ok() {
+        let instance_id_str = String::from_utf16_lossy(&instance_id[..(reqsize as usize - 1)]);
+        eprintln!("Instance ID: {}", instance_id_str);
+    }
+
     let mut buffer = [0u8; 512];
     let mut reqsize = 0u32;
     let result = unsafe {
@@ -183,15 +210,15 @@ fn get_device_registry_description(
             }
             let b = String::from_utf16_lossy(&vec_u16);
             let b = b.trim_end_matches('\0');
-            
+
             println!("UTF-16: {}", b);
             let buffer = &buffer[..reqsize as usize];
             Ok(String::from_utf8_lossy(buffer).to_string())
-        },
+        }
         Err(e) => {
             eprintln!("Error {}", e.message());
             Err(e.message())
-        },
+        }
     }
 }
 fn close_device_information_set(device_info_set: HDEVINFO) {
@@ -205,7 +232,121 @@ fn get_error() -> String {
     format!("{:?}", unsafe { GetLastError() })
 }
 
+fn get_raw_input_devices() -> Vec<HANDLE> {
+    let mut num_devices: u32 = 0;
+
+    // Primeiro, obtenha a quantidade de dispositivos disponíveis
+    let result = unsafe {
+        GetRawInputDeviceList(
+            None,
+            &mut num_devices,
+            size_of::<RAWINPUTDEVICELIST>() as u32,
+        )
+    };
+
+    if result != 0 {
+        eprintln!("Erro ao obter a quantidade de dispositivos.");
+        return vec![];
+    }
+
+    // Aloca um buffer para armazenar os dispositivos
+    let mut device_list: Vec<RAWINPUTDEVICELIST> = vec![unsafe { zeroed() }; num_devices as usize];
+
+    // Agora, obtenha a lista de dispositivos
+    let result = unsafe {
+        GetRawInputDeviceList(
+            Some(device_list.as_mut_ptr()),
+            &mut num_devices,
+            size_of::<RAWINPUTDEVICELIST>() as u32,
+        )
+    };
+
+    if result == u32::MAX {
+        eprintln!("Erro ao obter a lista de dispositivos.");
+        return vec![];
+    }
+
+    // Extrai os handles dos dispositivos
+    device_list
+        .into_iter()
+        .filter(|device| device.dwType == RIM_TYPEKEYBOARD)
+        .map(|device| device.hDevice)
+        .collect()
+}
+
+fn get_raw_input_device_instance_id(device_handle: HANDLE) -> Option<String> {
+    let mut size: u32 = 0;
+
+    // Primeiro, obtenha o tamanho necessário do buffer
+    let result =
+        unsafe { GetRawInputDeviceInfoW(Some(device_handle), RIDI_DEVICENAME, None, &mut size) };
+
+    if result != 0 {
+        eprintln!(
+            "Erro ao obter o tamanho do nome do dispositivo: {:?}",
+            unsafe { GetLastError() }
+        );
+        return None;
+    }
+
+    // Alocar buffer com o tamanho necessário
+    let mut buffer: Vec<u16> = vec![0; size as usize];
+
+    // Agora, obtenha o nome real do dispositivo
+    let result = unsafe {
+        GetRawInputDeviceInfoW(
+            Some(device_handle),
+            RIDI_DEVICENAME,
+            Some(buffer.as_mut_ptr() as *mut _),
+            &mut size,
+        )
+    };
+
+    if result == u32::MAX {
+        eprintln!("Erro ao obter o nome do dispositivo: {:?}", unsafe {
+            GetLastError()
+        });
+        return None;
+    }
+    let id = String::from_utf16(&buffer).unwrap();
+    // let id = format_device_path(id);
+    // regex para deixar no formato certo
+
+    Some(id)
+}
+
+fn format_device_path(id: String) -> String {
+    // Remover o prefixo \\?\ e o sufixo GUID
+    let trimmed = id
+        .trim_start_matches(r"\\?\")
+        .splitn(2, '#')
+        .next()
+        .unwrap();
+
+    // Dividir em partes
+    let parts: Vec<&str> = trimmed.split('#').collect();
+
+    if parts.len() != 2 {
+        return id.to_string(); // Retorna original se não estiver no formato esperado
+    }
+
+    // Processar cada parte
+    let first_part = parts[0].replace('#', r"\");
+    let second_part = parts[1].to_uppercase();
+
+    // Juntar as partes com \
+    format!(r"{}\{}", first_part, second_part)
+}
+
 fn main() {
     let ids = get_keyboards_description();
     println!("{:?}", ids);
+    let devices = get_raw_input_devices();
+    for device in devices {
+        println!("{:?}", device);
+        match get_raw_input_device_instance_id(device) {
+            Some(id) => unsafe { println!("ID do dispositivo: {}", id) },
+            None => println!("Falha ao obter o nome do dispositivo."),
+        }
+    }
 }
