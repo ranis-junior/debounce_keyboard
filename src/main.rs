@@ -203,6 +203,7 @@ fn get_device_registry_description(
     };
     match result {
         Ok(_) => {
+            let buffer = &buffer[..reqsize as usize];
             let mut vec_u16: Vec<u16> = Vec::new();
             let mut i = 0;
             while i < buffer.len() {
@@ -212,9 +213,7 @@ fn get_device_registry_description(
             let b = String::from_utf16_lossy(&vec_u16);
             let b = b.trim_end_matches('\0');
 
-            println!("UTF-16: {}", b);
-            let buffer = &buffer[..reqsize as usize];
-            Ok(String::from_utf8_lossy(buffer).to_string())
+            Ok(b.to_string())
         }
         Err(e) => {
             eprintln!("Error {}", e.message());
@@ -328,7 +327,6 @@ fn main() {
     println!("{:?}", ids);
     let devices = get_raw_input_devices();
     for device in devices {
-        println!("{:?}", device);
         match get_raw_input_device_instance_id(device) {
             Some(id) => unsafe { println!("ID do dispositivo: {}", id) },
             None => println!("Falha ao obter o nome do dispositivo."),
