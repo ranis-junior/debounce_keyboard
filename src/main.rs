@@ -1,28 +1,30 @@
-use regex::Regex;
 use std::ffi::c_void;
-use std::mem;
 use std::mem::zeroed;
+use windows::core::{s, PCSTR};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::UI::Input::{
+    GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
+    RIDEV_INPUTSINK, RID_INPUT, RIM_TYPEKEYBOARD,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, RegisterClassExA, TranslateMessage,
+    CW_USEDEFAULT, HWND_MESSAGE, MSG, WM_INPUT, WNDCLASSEXA, WS_OVERLAPPEDWINDOW,
+};
+
+use regex::Regex;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC,
-    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-    SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW,
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW,
+    SetupDiGetDeviceRegistryPropertyW, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT,
+    HDEVINFO, SPDRP_DEVICEDESC, SP_DEVINFO_DATA,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
-    DEVPROPTYPE,
+    DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROPTYPE, DEVPROP_TYPE_GUID,
+    DEVPROP_TYPE_STRING,
 };
-use windows::Win32::Foundation::{
-    ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, MAX_PATH, WPARAM,
-};
-use windows::Win32::System::LibraryLoader::GetModuleHandleA;
+use windows::Win32::Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, HANDLE, MAX_PATH};
 use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
-    RIM_TYPEKEYBOARD,
-};
-use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageA, GetMessageA, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, MSG,
-    SetWindowsHookExA, TranslateMessage, WH_KEYBOARD_LL,
 };
 
 fn get_keyboards_description() -> Result<Vec<(String, String)>, String> {
@@ -47,7 +49,7 @@ fn get_keyboards_description() -> Result<Vec<(String, String)>, String> {
 
             loop {
                 let mut dev_info_data: SP_DEVINFO_DATA = SP_DEVINFO_DATA::default();
-                dev_info_data.cbSize = mem::size_of::<SP_DEVINFO_DATA>() as u32;
+                dev_info_data.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
 
                 let result =
                     unsafe { SetupDiEnumDeviceInfo(device_info_set, index, &mut dev_info_data) };
@@ -328,43 +330,6 @@ fn format_device_path(id: &str) -> String {
     cap[1].trim_end_matches("#").replace("#", r"\")
 }
 
-static mut HOOK: HHOOK = HHOOK(0 as *mut c_void);
-
-unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0 {
-        let kb_struct = *(lparam.0 as *const KBDLLHOOKSTRUCT);
-
-        match wparam.0 as u32 {
-            WM_KEYDOWN => {
-                println!("Key Down: {:?}", kb_struct.vkCode);
-            }
-            WM_KEYUP => {
-                println!("Key Up: {:?}", kb_struct.vkCode);
-            }
-            _ => {}
-        }
-    }
-
-    CallNextHookEx(Some(HHOOK(0 as *mut c_void)), code, wparam, lparam)
-}
-fn main() {
-    unsafe {
-        let h_instance = GetModuleHandleA(None).unwrap();
-        let h_instance = HINSTANCE(h_instance.0); // cast explícito para HINSTANCE
-
-        HOOK = SetWindowsHookExA(WH_KEYBOARD_LL, Some(keyboard_proc), Some(h_instance), 0).unwrap();
-
-        println!("Hook installed. Press Ctrl+C to exit.");
-
-        let mut msg = MSG::default();
-
-        while GetMessageA(&mut msg, Some(HWND(0 as *mut c_void)), 0, 0).into() {
-            TranslateMessage(&msg);
-            DispatchMessageA(&msg);
-        }
-    }
-}
-
 // fn main() {
 //     let ids = get_keyboards_description();
 //     println!("{:?}", ids);
@@ -376,3 +341,133 @@ fn main() {
 //         }
 //     }
 // }
+
+unsafe extern "system" fn wind_proc(
+    h_wnd: HWND,
+    msg: u32,
+    w_param: WPARAM,
+    l_param: LPARAM,
+) -> LRESULT {
+    if msg == WM_INPUT {
+        let mut data_size: u32 = 0;
+        if GetRawInputData(
+            HRAWINPUT(l_param.0 as *mut c_void),
+            RID_INPUT,
+            None,
+            &mut data_size,
+            size_of::<RAWINPUTHEADER>() as u32,
+        ) != 0
+        {
+            return DefWindowProcA(h_wnd, msg, w_param, l_param);
+        }
+
+        let mut buffer = vec![0u8; data_size as usize];
+
+        if GetRawInputData(
+            HRAWINPUT(l_param.0 as *mut c_void),
+            RID_INPUT,
+            Some(buffer.as_mut_ptr() as *mut c_void),
+            &mut data_size,
+            size_of::<RAWINPUTHEADER>() as u32,
+        ) != data_size
+        {
+            return DefWindowProcA(h_wnd, msg, w_param, l_param);
+        }
+
+        let raw_input = &*(buffer.as_ptr() as *const RAWINPUT);
+
+        if raw_input.header.dwType == RIM_TYPEKEYBOARD.0 {
+            let keyboard = raw_input.data.keyboard;
+            println!(
+                "Tecla: {:?} | hDevice: {:?}",
+                keyboard.VKey, raw_input.header.hDevice
+            );
+        }
+    }
+
+    DefWindowProcA(h_wnd, msg, w_param, l_param)
+}
+
+fn define_window_class(lpsz_class_name: PCSTR, h_instance: HINSTANCE) {
+    let lpsz_class_name = s!("RawInputClass");
+    let h_instance = HINSTANCE::default();
+
+    let wcx: WNDCLASSEXA = WNDCLASSEXA {
+        cbSize: size_of::<WNDCLASSEXA>() as u32,
+        lpfnWndProc: Some(wind_proc),
+        hInstance: h_instance,
+        lpszClassName: lpsz_class_name,
+        ..unsafe { std::mem::zeroed() }
+    };
+    unsafe { RegisterClassExA(&wcx) };
+    println!("Successfully registered class {:?}", wcx.lpszClassName);
+}
+
+fn create_window(
+    lpsz_class_name: PCSTR,
+    h_instance: HINSTANCE,
+) -> Result<HWND, windows::core::Error> {
+    let h_wnd = unsafe {
+        CreateWindowExA(
+            Default::default(),
+            lpsz_class_name,
+            None,
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            0,
+            0,
+            Some(HWND_MESSAGE),
+            None,
+            Some(h_instance),
+            None,
+        )
+    };
+    if h_wnd.is_ok() {
+        println!("Successfully created window {:?}", h_wnd);
+    }
+    h_wnd
+}
+
+fn register_raw_input_device(h_wnd: HWND) {
+    let rid = RAWINPUTDEVICE {
+        usUsagePage: 0x01,
+        usUsage: 0x06, // keyboard
+        dwFlags: RIDEV_INPUTSINK,
+        hwndTarget: h_wnd,
+    };
+
+    unsafe {
+        RegisterRawInputDevices(&[rid], size_of::<RAWINPUTDEVICE>() as u32);
+    }
+
+    println!("Successfully registered device");
+}
+
+fn run_message_loop() {
+    let mut msg: MSG = MSG::default();
+    while unsafe { GetMessageA(&mut msg, Some(HWND::default()), 0, 0) } == true {
+        unsafe {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+        }
+    }
+}
+
+fn main() {
+    let lpsz_class_name = s!("RawInputClass");
+    let h_instance = HINSTANCE::default();
+
+    define_window_class(lpsz_class_name, h_instance);
+    let h_wnd = create_window(lpsz_class_name, h_instance);
+
+    match h_wnd {
+        Ok(h_wnd) => {
+            register_raw_input_device(h_wnd);
+            run_message_loop();
+        }
+        Err(e) => {
+            panic!("{}", e)
+        }
+    };
+}
