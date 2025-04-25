@@ -2,10 +2,7 @@ use std::ffi::c_void;
 use std::mem::zeroed;
 use windows::core::{s, Error, PCSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::{
-    GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
-    RIDEV_INPUTSINK, RID_INPUT, RIM_TYPEKEYBOARD,
-};
+use windows::Win32::UI::Input::{GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK, RIDEV_NOLEGACY, RID_INPUT, RIM_TYPEKEYBOARD};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, RegisterClassExA, TranslateMessage,
     CW_USEDEFAULT, HWND_MESSAGE, MSG, WM_INPUT, WNDCLASSEXA, WS_OVERLAPPEDWINDOW,
@@ -426,7 +423,7 @@ fn register_raw_input_device(h_wnd: HWND) -> Result<(), Error> {
     let rid = RAWINPUTDEVICE {
         usUsagePage: 0x01,
         usUsage: 0x06, // keyboard
-        dwFlags: RIDEV_INPUTSINK,
+        dwFlags: RIDEV_INPUTSINK | RIDEV_NOLEGACY,
         hwndTarget: h_wnd,
     };
 
