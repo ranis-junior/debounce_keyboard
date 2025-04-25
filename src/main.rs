@@ -400,10 +400,7 @@ fn define_window_class(lpsz_class_name: PCSTR, h_instance: HINSTANCE) {
     println!("Successfully registered class {:?}", wcx.lpszClassName);
 }
 
-fn create_window(
-    lpsz_class_name: PCSTR,
-    h_instance: HINSTANCE,
-) -> Result<HWND, Error> {
+fn create_window(lpsz_class_name: PCSTR, h_instance: HINSTANCE) -> Result<HWND, Error> {
     let h_wnd = unsafe {
         CreateWindowExA(
             Default::default(),
@@ -419,14 +416,13 @@ fn create_window(
             Some(h_instance),
             None,
         )
-    };
-    if h_wnd.is_ok() {
-        println!("Successfully created window {:?}", h_wnd);
-    }
-    h_wnd
+    }?;
+
+    println!("Successfully created window {:?}", h_wnd);
+    Ok(h_wnd)
 }
 
-fn register_raw_input_device(h_wnd: HWND) -> Result<(), Error>{
+fn register_raw_input_device(h_wnd: HWND) -> Result<(), Error> {
     let rid = RAWINPUTDEVICE {
         usUsagePage: 0x01,
         usUsage: 0x06, // keyboard
@@ -435,15 +431,10 @@ fn register_raw_input_device(h_wnd: HWND) -> Result<(), Error>{
     };
 
     unsafe {
-        match RegisterRawInputDevices(&[rid], size_of::<RAWINPUTDEVICE>() as u32) {
-            Ok(_) => {
-                println!("Successfully registered device");
-                Ok(())
-            }
-            Err(e) => Err(e)
-        }
+        RegisterRawInputDevices(&[rid], size_of::<RAWINPUTDEVICE>() as u32)?;
     }
-
+    println!("Successfully registered device");
+    Ok(())
 }
 
 fn run_message_loop() {
@@ -461,15 +452,7 @@ fn main() {
     let h_instance = HINSTANCE::default();
 
     define_window_class(lpsz_class_name, h_instance);
-    let h_wnd = create_window(lpsz_class_name, h_instance);
-
-    match h_wnd {
-        Ok(h_wnd) => {
-            register_raw_input_device(h_wnd).unwrap();
-            run_message_loop();
-        }
-        Err(e) => {
-            panic!("{}", e)
-        }
-    };
+    let h_wnd = create_window(lpsz_class_name, h_instance).expect("Failed to create window");
+    register_raw_input_device(h_wnd).expect("Failed to register raw input device");
+    run_message_loop();
 }
