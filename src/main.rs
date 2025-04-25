@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::mem::zeroed;
-use windows::core::{s, PCSTR};
+use windows::core::{s, Error, PCSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
@@ -324,7 +324,7 @@ fn get_raw_input_device_instance_id(device_handle: HANDLE) -> Option<String> {
 }
 
 fn format_device_path(id: &str) -> String {
-    let re = Regex::new(r"^\W{4}([^\{]*)\{").unwrap();
+    let re = Regex::new(r"^\W{4}([^{]*)\{").unwrap();
     let cap = re.captures(&id).unwrap();
 
     cap[1].trim_end_matches("#").replace("#", r"\")
@@ -389,15 +389,12 @@ unsafe extern "system" fn wind_proc(
 }
 
 fn define_window_class(lpsz_class_name: PCSTR, h_instance: HINSTANCE) {
-    let lpsz_class_name = s!("RawInputClass");
-    let h_instance = HINSTANCE::default();
-
     let wcx: WNDCLASSEXA = WNDCLASSEXA {
         cbSize: size_of::<WNDCLASSEXA>() as u32,
         lpfnWndProc: Some(wind_proc),
         hInstance: h_instance,
         lpszClassName: lpsz_class_name,
-        ..unsafe { std::mem::zeroed() }
+        ..unsafe { zeroed() }
     };
     unsafe { RegisterClassExA(&wcx) };
     println!("Successfully registered class {:?}", wcx.lpszClassName);
@@ -406,7 +403,7 @@ fn define_window_class(lpsz_class_name: PCSTR, h_instance: HINSTANCE) {
 fn create_window(
     lpsz_class_name: PCSTR,
     h_instance: HINSTANCE,
-) -> Result<HWND, windows::core::Error> {
+) -> Result<HWND, Error> {
     let h_wnd = unsafe {
         CreateWindowExA(
             Default::default(),
@@ -429,7 +426,7 @@ fn create_window(
     h_wnd
 }
 
-fn register_raw_input_device(h_wnd: HWND) {
+fn register_raw_input_device(h_wnd: HWND) -> Result<(), Error>{
     let rid = RAWINPUTDEVICE {
         usUsagePage: 0x01,
         usUsage: 0x06, // keyboard
@@ -438,10 +435,15 @@ fn register_raw_input_device(h_wnd: HWND) {
     };
 
     unsafe {
-        RegisterRawInputDevices(&[rid], size_of::<RAWINPUTDEVICE>() as u32);
+        match RegisterRawInputDevices(&[rid], size_of::<RAWINPUTDEVICE>() as u32) {
+            Ok(_) => {
+                println!("Successfully registered device");
+                Ok(())
+            }
+            Err(e) => Err(e)
+        }
     }
 
-    println!("Successfully registered device");
 }
 
 fn run_message_loop() {
@@ -463,7 +465,7 @@ fn main() {
 
     match h_wnd {
         Ok(h_wnd) => {
-            register_raw_input_device(h_wnd);
+            register_raw_input_device(h_wnd).unwrap();
             run_message_loop();
         }
         Err(e) => {
