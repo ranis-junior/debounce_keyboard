@@ -12,6 +12,7 @@ use std::process::exit;
 
 mod device;
 
+#[cfg(target_os = "linux")]
 fn main() {
     let args = Cli::parse();
 
