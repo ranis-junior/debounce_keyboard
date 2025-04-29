@@ -1,28 +1,29 @@
 use std::ffi::c_void;
 use std::mem::zeroed;
+use windows::core::{s, Error, PCSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::{
-    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-    RIDEV_INPUTSINK, RIDEV_NOLEGACY, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
+    GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
+    RIDEV_INPUTSINK, RIDEV_NOLEGACY, RID_INPUT, RIM_TYPEKEYBOARD,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, HWND_MESSAGE,
-    MSG, RegisterClassExA, TranslateMessage, WM_INPUT, WNDCLASSEXA, WS_OVERLAPPEDWINDOW,
+    CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, RegisterClassExA, TranslateMessage,
+    CW_USEDEFAULT, HWND_MESSAGE, MSG, RI_KEY_BREAK, WM_INPUT, WNDCLASSEXA,
+    WS_OVERLAPPEDWINDOW,
 };
-use windows::core::{Error, PCSTR, s};
 
 use regex::Regex;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC,
-    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-    SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW,
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW,
+    SetupDiGetDeviceRegistryPropertyW, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT,
+    HDEVINFO, SPDRP_DEVICEDESC, SP_DEVINFO_DATA,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
-    DEVPROPTYPE,
+    DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROPTYPE, DEVPROP_TYPE_GUID,
+    DEVPROP_TYPE_STRING,
 };
-use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, MAX_PATH};
+use windows::Win32::Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, HANDLE, MAX_PATH};
 use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
 };
@@ -378,7 +379,7 @@ unsafe extern "system" fn win_proc(
 
         if raw_input.header.dwType == RIM_TYPEKEYBOARD.0 {
             let keyboard = raw_input.data.keyboard;
-            if keyboard.Flags == 1 {
+            if keyboard.Flags & RI_KEY_BREAK as u16 == 0 {
                 // if it's a key release, we just throw it out the window :D
                 return LRESULT(0);
             }
