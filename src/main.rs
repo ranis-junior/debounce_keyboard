@@ -1,5 +1,8 @@
+use std::cell::{LazyCell, OnceCell};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::zeroed;
+use std::sync::{LazyLock, Mutex, OnceLock};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::{
     GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
@@ -10,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MSG, RI_KEY_BREAK, RegisterClassExA, TranslateMessage, WM_INPUT, WNDCLASSEXA,
     WS_OVERLAPPEDWINDOW,
 };
-use windows::core::{Error, PCSTR, s, GUID};
+use windows::core::{Error, GUID, PCSTR, s};
 
 use regex::Regex;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
@@ -19,7 +22,10 @@ use windows::Win32::Devices::DeviceAndDriverInstallation::{
     SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
-use windows::Win32::Devices::Properties::{DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName, DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING, DEVPROPTYPE, DEVPKEY_Device_ContainerId};
+use windows::Win32::Devices::Properties::{
+    DEVPKEY_Device_ContainerId, DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName,
+    DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING, DEVPROPTYPE,
+};
 use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, MAX_PATH};
 use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
@@ -150,9 +156,7 @@ fn get_device_instance_id(
         )
     }?;
 
-    let result = String::from_utf16_lossy(
-        &instance_id[..(reqsize as usize - 1)],
-    );
+    let result = String::from_utf16_lossy(&instance_id[..(reqsize as usize - 1)]);
     println!("RESULT: {}", result);
     Ok(result)
 }
@@ -379,6 +383,29 @@ unsafe extern "system" fn win_proc(
         let raw_input = &*(buffer.as_ptr() as *const RAWINPUT);
 
         if raw_input.header.dwType == RIM_TYPEKEYBOARD.0 {
+            let handle_str = format!("{:?}", raw_input.header.hDevice);
+            {
+                let mut map = IDS_MAP.lock().unwrap();
+                match map.get(&handle_str) {
+                    Some(value) => {
+                        if ID_TEST != value {
+                            return LRESULT(0);
+                        }
+                    }
+                    None => {
+                        let instance_id =
+                            get_raw_input_device_instance_id(raw_input.header.hDevice)
+                                .expect("Error getting raw input device instance id.");
+                        let instance_id = instance_id.to_uppercase();
+                        map.insert(handle_str, instance_id.clone());
+
+                        if ID_TEST != instance_id {
+                            return LRESULT(0);
+                        }
+                    }
+                }
+            }
+
             let keyboard = raw_input.data.keyboard;
             if keyboard.Flags & RI_KEY_BREAK as u16 == 0 {
                 // if it's a key release, we just throw it out the window :D
@@ -452,6 +479,10 @@ fn run_message_loop() {
         }
     }
 }
+
+const ID_TEST: &str = r"HID\VID_046D&PID_C53D&MI_00\7&2738726C&0&0000";
+static IDS_MAP: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn main() {
     print_names();
