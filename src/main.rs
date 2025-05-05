@@ -1,35 +1,34 @@
-use std::cell::{LazyCell, OnceCell};
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::zeroed;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use windows::core::{s, Error, GUID, PCSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::{
-    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-    RIDEV_INPUTSINK, RIDEV_NOLEGACY, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
+    GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
+    RIDEV_INPUTSINK, RIDEV_NOLEGACY, RID_INPUT, RIM_TYPEKEYBOARD,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, HWND_MESSAGE,
-    MSG, RI_KEY_BREAK, RegisterClassExA, TranslateMessage, WM_INPUT, WNDCLASSEXA,
+    CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, RegisterClassExA, TranslateMessage,
+    CW_USEDEFAULT, HWND_MESSAGE, MSG, RI_KEY_BREAK, WM_INPUT, WNDCLASSEXA,
     WS_OVERLAPPEDWINDOW,
 };
-use windows::core::{Error, GUID, PCSTR, s};
 
 use regex::Regex;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SPDRP_DEVICEDESC,
-    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-    SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW, SetupDiGetDeviceRegistryPropertyW,
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDevicePropertyW,
+    SetupDiGetDeviceRegistryPropertyW, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT,
+    HDEVINFO, SPDRP_DEVICEDESC, SP_DEVINFO_DATA,
 };
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_KEYBOARD;
 use windows::Win32::Devices::Properties::{
-    DEVPKEY_Device_ContainerId, DEVPKEY_Device_Driver, DEVPKEY_Device_FriendlyName,
-    DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING, DEVPROPTYPE,
+    DEVPKEY_Device_ContainerId, DEVPKEY_Device_FriendlyName, DEVPROPTYPE,
+    DEVPROP_TYPE_GUID, DEVPROP_TYPE_STRING,
 };
-use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, GetLastError, HANDLE, MAX_PATH};
+use windows::Win32::Foundation::{GetLastError, ERROR_NO_MORE_ITEMS, HANDLE, MAX_PATH};
 use windows::Win32::UI::Input::{
     GetRawInputDeviceInfoW, GetRawInputDeviceList, RAWINPUTDEVICELIST, RIDI_DEVICENAME,
 };
+
+use windows::Win32::{Foundation::*, UI::Input::KeyboardAndMouse::*, UI::WindowsAndMessaging::*};
 
 fn get_keyboards_description() -> Result<Vec<(String, String, String)>, String> {
     let devices = unsafe {
@@ -383,31 +382,8 @@ unsafe extern "system" fn win_proc(
         let raw_input = &*(buffer.as_ptr() as *const RAWINPUT);
 
         if raw_input.header.dwType == RIM_TYPEKEYBOARD.0 {
-            let handle_str = format!("{:?}", raw_input.header.hDevice);
-            {
-                let mut map = IDS_MAP.lock().unwrap();
-                match map.get(&handle_str) {
-                    Some(value) => {
-                        if ID_TEST != value {
-                            return LRESULT(0);
-                        }
-                    }
-                    None => {
-                        let instance_id =
-                            get_raw_input_device_instance_id(raw_input.header.hDevice)
-                                .expect("Error getting raw input device instance id.");
-                        let instance_id = instance_id.to_uppercase();
-                        map.insert(handle_str, instance_id.clone());
-
-                        if ID_TEST != instance_id {
-                            return LRESULT(0);
-                        }
-                    }
-                }
-            }
-
             let keyboard = raw_input.data.keyboard;
-            if keyboard.Flags & RI_KEY_BREAK as u16 == 0 {
+            if keyboard.Flags & RI_KEY_BREAK as u16 != 0 {
                 // if it's a key release, we just throw it out the window :D
                 return LRESULT(0);
             }
@@ -480,10 +456,6 @@ fn run_message_loop() {
     }
 }
 
-const ID_TEST: &str = r"HID\VID_046D&PID_C53D&MI_00\7&2738726C&0&0000";
-static IDS_MAP: LazyLock<Mutex<HashMap<String, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
 fn main() {
     print_names();
     let lpsz_class_name = s!("RawInputClass");
@@ -492,5 +464,41 @@ fn main() {
     define_window_class(lpsz_class_name, h_instance);
     let h_wnd = create_window(lpsz_class_name, h_instance).expect("Failed to create window");
     register_raw_input_device(h_wnd).expect("Failed to register raw input device");
+    run_windows_ll_keyboard_hook();
     run_message_loop();
+}
+
+unsafe extern "system" fn keyboard_proc(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+    if n_code == HC_ACTION as i32 {
+        let kbd_struct = &*(l_param.0 as *const KBDLLHOOKSTRUCT);
+
+        let vk_code = kbd_struct.vkCode;
+
+        if w_param.0 == WM_KEYDOWN as usize {
+            println!("Tecla pressionada: {}", vk_code);
+
+            // Exemplo: bloqueia a tecla F5
+            if vk_code == VK_F5.0 as u32 {
+                println!("F5 bloqueada.");
+                return LRESULT(1); // Bloqueia
+            }
+        }
+    }
+
+    CallNextHookEx(Some(HHOOK::default()), n_code, w_param, l_param)
+}
+
+fn run_windows_ll_keyboard_hook() -> Result<(), Error> {
+    unsafe {
+        let mut HOOK: HHOOK = HHOOK::default();
+        let h_instance = HINSTANCE::default();
+        HOOK = SetWindowsHookExA(WH_KEYBOARD_LL, Some(keyboard_proc), Some(h_instance), 0).unwrap();
+
+        if HOOK.is_invalid() {
+            panic!("Erro ao instalar o hook.");
+        }
+
+        println!("Hook instalado. Pressione Ctrl+C para sair.");
+        Ok(())
+    }
 }
