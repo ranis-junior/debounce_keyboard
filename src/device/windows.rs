@@ -2,14 +2,14 @@ pub mod debounce {
     use crate::device::windows::config::ConfigHolder;
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, SystemTime};
+    use std::time::Duration;
     use strum::{EnumIter, IntoEnumIterator};
 
+    use windows::core::Error;
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageA, GetMessageA, MSG, TranslateMessage,
+        DispatchMessageA, GetMessageA, TranslateMessage, MSG,
     };
-    use windows::core::Error;
 
     use windows::Win32::{UI::Input::KeyboardAndMouse::*, UI::WindowsAndMessaging::*};
 
@@ -424,7 +424,7 @@ pub mod debounce {
 pub mod command_line {
     use std::path::PathBuf;
 
-    use clap::{Parser, Subcommand};
+    use clap::Parser;
 
     #[derive(Parser, Debug)]
     #[command(
@@ -440,8 +440,8 @@ pub mod command_line {
 }
 
 pub mod config {
-    use crate::device::windows::debounce::MappedKey;
     use crate::device::windows::debounce::get_all_keys_code;
+    use crate::device::windows::debounce::MappedKey;
     use config::{Config, File, FileFormat};
     use std::collections::HashMap;
     use std::fmt::{Display, Formatter};
