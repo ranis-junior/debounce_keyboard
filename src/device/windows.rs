@@ -297,21 +297,18 @@ pub mod debounce {
         config_holder: &ConfigHolder,
     ) -> bool {
         /*
-            @TODO find a way to verify key press event
-            may save the previous state on keyEventHolder, and if it was the same
-            before = now  = key_down, then it means a key press
-        // if let Some(&(value, _)) = key_holder.container.get(&key_code) {
-        //     if key_value == value && (key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN) {
-        //         eprintln!("KeyPress Event detected!");
-        //         return false;
-        //     }
-        // }
-            sendo gerado indevidamente, pois como  a verificação acontece no key release, o primeiro key down é
-            salvo, o key release subsequente ignorado, e o proximo key down conta agora como um key press
+           @TODO find a way to verify key press event
         */
+        if let Some(key_event   ) = key_holder.container.get(&key_code) {
+            if key_value == key_event.value
+                && (key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN)
+                && key_event.valid
+            {
+                return false;
+            }
+        }
 
         if !config_holder.keys.contains(&MappedKey::from(key_code)) {
-            println!("Config File not contains that key!");
             return false;
         }
         let minimum_delay = key_holder.minimum_delay;
@@ -324,26 +321,29 @@ pub mod debounce {
                     last_timestamp.saturating_sub(previous_timestamp) > minimum_delay;
 
                 if key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN {
-                    println!("KEY_DOWN");
                     if time_expired {
-                        println!("time expired!");
                         key_event.valid = true;
-                        key_holder.remove_event(key_code);
+                        key_holder.insert_event(
+                            key_code,
+                            KeyEvent::new(
+                                key_code,
+                                key_value,
+                                Duration::from_millis(timestamp as u64),
+                                true,
+                            ),
+                        );
                         return false;
                     }
                     return true;
                 } else if key_event.valid {
-                    println!("KEY_UP and valid");
                     key_event.valid = false;
                     return false;
                 } else {
-                    println!("KEY_UP");
                     return true;
                 }
             }
             None => {
                 if key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN {
-                    println!("Inserting event!");
                     key_holder.insert_event(
                         key_code,
                         KeyEvent::new(
@@ -392,11 +392,9 @@ pub mod debounce {
                 &mut key_event_holder,
                 &config_holder,
             );
-            println!("Ignora?: {skip}");
 
             if skip {
-                println!("Tecla bloqueada.");
-                return LRESULT(1); // Bloqueia
+                return LRESULT(1);
             }
         }
 
