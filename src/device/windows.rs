@@ -296,10 +296,7 @@ pub mod debounce {
         key_holder: &mut KeyEventHolder,
         config_holder: &ConfigHolder,
     ) -> bool {
-        /*
-           @TODO find a way to verify key press event
-        */
-        if let Some(key_event   ) = key_holder.container.get(&key_code) {
+        if let Some(key_event) = key_holder.container.get(&key_code) {
             if key_value == key_event.value
                 && (key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN)
                 && key_event.valid
