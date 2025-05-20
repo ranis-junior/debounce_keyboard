@@ -1,19 +1,36 @@
 extern crate core;
 
-use crate::device::command_line::{Cli, Commands};
+use crate::device::command_line::Cli;
+#[cfg(target_os = "linux")]
+use crate::device::command_line::Commands;
 use crate::device::config::{ConfigHolder, load_config, save_config_to_path};
+#[cfg(target_os = "linux")]
 use crate::device::debounce::{
     KeyEventHolder, combine_u16_to_u32, create_virtual_device, emit_key_event, list_devices,
     receive_event, should_skip, split_u32_to_u16,
 };
-use clap::Parser;
-use evdev::{Device, EventSummary};
-use std::process::exit;
 
 mod device;
+use device::*;
+
+#[cfg(target_os = "windows")]
+fn main() {
+    let args = Cli::parse();
+
+    let config_path = args.config_path.unwrap_or_else(|| "config.ini".into());
+    let mut config: ConfigHolder = load_config(&config_path);
+    save_config_to_path(&config_path, &config);
+
+    let mut key_event_holder = KeyEventHolder::new(config.delay_ms);
+    
+    setup_windows_ll_keyboard_hook(key_event_holder, config);
+    run_message_loop()
+}
 
 #[cfg(target_os = "linux")]
 fn main() {
+    use evdev::{Device, EventSummary};
+
     let args = Cli::parse();
 
     let config_path = args.config_path.unwrap_or_else(|| "config.ini".into());

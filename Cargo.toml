@@ -1,9 +1,22 @@
 [package]
 name = "debounce-keyboard"
 version = "0.1.0"
+authors = ["ranis <ranis.junior@outlook.com>"]
+description = "Cross-platform (Windows & Linux) binary for ."
+documentation = ""
+homepage = "https://github.com/obv-mikhail/inputbot"
+repository = "https://github.com/obv-mikhail/inputbot"
+readme = "README.md"
+keywords = ["hotkey", "keyboard", "input", "double"]
+categories = ["accessibility", "api-bindings", "os"]
+license = "MIT"
 edition = "2024"
 
 [dependencies]
-clap = {version = "4.5.30", features = ["derive"]}
-evdev = "0.13.0"
+clap = { version = "4.5.37", features = ["derive"] }
 config = {version = "0.15.8", features = ["ini"]}
+strum = { version = "0.27.1", features = ["derive"] }
+[target.'cfg(unix)'.dependencies]
+evdev = "0.13.0"
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.1", features = ["default","Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
