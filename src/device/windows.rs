@@ -246,7 +246,7 @@ pub mod debounce {
     #[derive(Debug)]
     pub struct KeyEventHolder {
         minimum_delay: Duration,
-        container: HashMap<u16, (u32, Duration)>,
+        container: HashMap<u16, KeyEvent>,
     }
 
     impl KeyEventHolder {
@@ -257,35 +257,38 @@ pub mod debounce {
             }
         }
 
-        fn insert_event(&mut self, key_code: u16, key_value: u32, timestamp: Duration) {
-            self.container.insert(key_code, (key_value, timestamp));
+        fn insert_event(&mut self, key_code: u16, key_event: KeyEvent) {
+            self.container.insert(key_code, key_event);
         }
 
         fn remove_event(&mut self, key_code: u16) {
             self.container.remove(&key_code);
         }
 
-        fn last_timestamp(&self, key_code: u16) -> Option<&(u32, Duration)> {
-            self.container.get(&key_code)
+        fn last_timestamp(&mut self, key_code: u16) -> Option<&mut KeyEvent> {
+            self.container.get_mut(&key_code)
         }
     }
 
     #[derive(Debug)]
     pub struct KeyEvent {
         pub keycode: u16,
-        pub value: i32,
-        pub timestamp: SystemTime,
+        pub value: u32,
+        pub timestamp: Duration,
+        pub valid: bool,
     }
 
     impl KeyEvent {
-        pub fn new(keycode: u16, value: i32, timestamp: SystemTime) -> KeyEvent {
+        pub fn new(keycode: u16, value: u32, timestamp: Duration, valid: bool) -> KeyEvent {
             KeyEvent {
                 keycode,
                 value,
                 timestamp,
+                valid,
             }
         }
     }
+
     fn should_skip(
         key_code: u16,
         key_value: u32,
@@ -311,38 +314,44 @@ pub mod debounce {
             println!("Config File not contains that key!");
             return false;
         }
+        let minimum_delay = key_holder.minimum_delay;
         match key_holder.last_timestamp(key_code) {
-            Some(&(_, previous_timestamp)) => {
+            Some(key_event) => {
                 let last_timestamp = Duration::from_millis(timestamp as u64);
-                println!("Diff Timestamp: {:?}", {
-                    last_timestamp
-                        .saturating_sub(previous_timestamp)
-                });
-                println!("minimum_delay: {:?}", key_holder.minimum_delay);
-                let should_skip =
-                    last_timestamp.saturating_sub(previous_timestamp) <= key_holder.minimum_delay;
-                println!("should_skip: {:?}", should_skip);
-                if key_value == WM_KEYUP || key_value == WM_SYSKEYUP {
-                    println!("11111111111111111111111111111111111");
-                    if !should_skip {
-                        println!("222222222222222222222222222222222222222");
+                let previous_timestamp = key_event.timestamp;
+
+                let time_expired =
+                    last_timestamp.saturating_sub(previous_timestamp) > minimum_delay;
+
+                if key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN {
+                    println!("KEY_DOWN");
+                    if time_expired {
+                        println!("time expired!");
+                        key_event.valid = true;
                         key_holder.remove_event(key_code);
                         return false;
                     }
+                    return true;
+                } else if key_event.valid {
+                    println!("KEY_UP and valid");
+                    key_event.valid = false;
+                    return false;
                 } else {
-                    println!("333333333333333333333333333333333333");
+                    println!("KEY_UP");
                     return true;
                 }
-                println!("444444444444444444444444444444444444444444444");
-                should_skip
             }
             None => {
                 if key_value == WM_KEYDOWN || key_value == WM_SYSKEYDOWN {
                     println!("Inserting event!");
                     key_holder.insert_event(
                         key_code,
-                        key_value,
-                        Duration::from_millis(timestamp as u64),
+                        KeyEvent::new(
+                            key_code,
+                            key_value,
+                            Duration::from_millis(timestamp as u64),
+                            true,
+                        ),
                     );
                 }
                 false
