@@ -262,7 +262,7 @@ pub mod debounce {
     #[derive(Debug)]
     pub struct KeyEventHolder {
         minimum_delay: Duration,
-        container: HashMap<u16, SystemTime>,
+        container: HashMap<u16, KeyEvent>,
     }
 
     impl KeyEventHolder {
@@ -273,16 +273,16 @@ pub mod debounce {
             }
         }
 
-        fn insert_event(&mut self, key_code: u16, timestamp: SystemTime) {
-            self.container.insert(key_code, timestamp);
+        fn insert_event(&mut self, key_code: u16, key_event: KeyEvent) {
+            self.container.insert(key_code, key_event);
         }
 
-        fn remove_event(&mut self, key_code: &u16) {
-            self.container.remove(key_code);
+        fn remove_event(&mut self, key_code: u16) {
+            self.container.remove(&key_code);
         }
 
-        fn last_timestamp(&self, key_code: &u16) -> Option<&SystemTime> {
-            self.container.get(key_code)
+        fn last_timestamp(&mut self, key_code: u16) -> Option<&mut KeyEvent> {
+            self.container.get_mut(&key_code)
         }
     }
 
@@ -291,14 +291,16 @@ pub mod debounce {
         pub keycode: u16,
         pub value: i32,
         pub timestamp: SystemTime,
+        pub valid: bool,
     }
 
     impl KeyEvent {
-        pub fn new(keycode: u16, value: i32, timestamp: SystemTime) -> KeyEvent {
+        pub fn new(keycode: u16, value: i32, timestamp: SystemTime, valid: bool) -> KeyEvent {
             KeyEvent {
                 keycode,
                 value,
                 timestamp,
+                valid,
             }
         }
     }
@@ -341,23 +343,35 @@ pub mod debounce {
         if !config_holder.keys.contains(&ev.keycode) {
             return false;
         }
-        match key_holder.last_timestamp(&ev.keycode) {
-            Some(&timestamp) => {
-                let should_skip =
-                    ev.timestamp.duration_since(timestamp).unwrap() <= key_holder.minimum_delay;
+        let minimum_delay = key_holder.minimum_delay;
+        match key_holder.last_timestamp(ev.keycode) {
+            Some(key_event) => {
+                let duration = ev.timestamp.duration_since(key_event.timestamp).unwrap();
+                let time_expired = duration > minimum_delay;
+                // 1 for pressed, 0 for not pressed
                 if ev.value == 1 {
-                    if !should_skip {
-                        key_holder.remove_event(&ev.keycode);
+                    if time_expired {
+                        key_event.valid = true;
+                        key_holder.insert_event(
+                            ev.keycode,
+                            KeyEvent::new(ev.keycode, ev.value, ev.timestamp, true),
+                        );
                         return false;
                     }
+                    true
+                } else if key_event.valid {
+                    key_event.valid = false;
+                    return false;
                 } else {
                     return true;
                 }
-                should_skip
             }
             None => {
-                if ev.value == 0 {
-                    key_holder.insert_event(ev.keycode, ev.timestamp);
+                if ev.value == 1 {
+                    key_holder.insert_event(
+                        ev.keycode,
+                        KeyEvent::new(ev.keycode, ev.value, ev.timestamp, true),
+                    );
                 }
                 false
             }
@@ -386,6 +400,7 @@ pub mod debounce {
                         event.code().code(),
                         event.value(),
                         event.timestamp(),
+                        true,
                     ));
                 }
                 None
@@ -394,6 +409,7 @@ pub mod debounce {
     }
 
     pub fn emit_key_event(event: KeyEvent, virtual_device: &mut VirtualDevice) {
+        println!("Emitting key event");
         let key_event = *KeyEventEvDev::new(KeyCode(event.keycode), event.value);
         virtual_device.emit(&[key_event]).unwrap();
     }
