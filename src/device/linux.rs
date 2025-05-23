@@ -409,7 +409,6 @@ pub mod debounce {
     }
 
     pub fn emit_key_event(event: KeyEvent, virtual_device: &mut VirtualDevice) {
-        println!("Emitting key event");
         let key_event = *KeyEventEvDev::new(KeyCode(event.keycode), event.value);
         virtual_device.emit(&[key_event]).unwrap();
     }
